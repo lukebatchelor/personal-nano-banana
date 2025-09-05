@@ -3,6 +3,7 @@ import type { Context } from 'hono';
 import DatabaseService from '../services/database';
 import GenerationService from '../services/generation';
 import { fileUploadMiddleware } from '../middleware/fileUpload';
+import { CreateBatchSchema, SessionIdParam, BatchIdParam } from '../validation/schemas';
 
 // Define interface for uploaded file
 interface UploadedFile {
@@ -27,36 +28,26 @@ const generationService = new GenerationService(db);
 batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => {
   try {
     console.log('Starting batch creation...');
-    const sessionId = parseInt(c.req.param('sessionId'));
     
-    if (isNaN(sessionId)) {
-      return c.json({ error: 'Invalid session ID' }, 400);
-    }
+    // Validate session ID parameter
+    const sessionParams = SessionIdParam.parse({ sessionId: c.req.param('sessionId') });
 
     // Check if session exists
-    const session = db.getSession(sessionId);
+    const session = db.getSession(sessionParams.sessionId);
     if (!session) {
       return c.json({ error: 'Session not found' }, 404);
     }
 
     // Get parsed body data from middleware
-    const parsedBody = c.get('parsedBody') as Record<string, any>;
+    const parsedBody = c.get('parsedBody');
     console.log('Parsed body from middleware:', parsedBody);
     
-    const prompt = parsedBody.prompt as string;
-    const batchSize = parseInt(parsedBody.batchSize as string);
-    console.log('Extracted values - prompt:', prompt, 'batchSize:', batchSize);
-
-    if (!prompt || typeof prompt !== 'string') {
-      return c.json({ error: 'Prompt is required' }, 400);
-    }
-
-    if (!batchSize || typeof batchSize !== 'number' || batchSize < 1 || batchSize > 8) {
-      return c.json({ error: 'Batch size must be between 1 and 8' }, 400);
-    }
+    // Validate request body
+    const validatedData = CreateBatchSchema.parse(parsedBody);
+    console.log('Validated data - prompt:', validatedData.prompt, 'batchSize:', validatedData.batchSize);
 
     // Create the batch
-    const batch = db.createBatch(sessionId, prompt, batchSize);
+    const batch = db.createBatch(sessionParams.sessionId, validatedData.prompt, validatedData.batchSize);
 
     // Handle uploaded reference images if any
     const uploadedFiles = c.get('uploadedFiles') || [];
@@ -76,7 +67,10 @@ batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => 
       batchId: batch.id, 
       status: 'pending' as const 
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return c.json({ error: error.errors[0].message }, 400);
+    }
     console.error('Error creating batch:', error);
     return c.json({ error: 'Failed to create batch' }, 500);
   }
@@ -85,15 +79,11 @@ batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => 
 // GET /api/batches/:batchId/status - Get batch status and results  
 batches.get('/batches/:batchId/status', async (c) => {
   try {
-    const batchId = parseInt(c.req.param('batchId'));
-    
-    if (isNaN(batchId)) {
-      return c.json({ error: 'Invalid batch ID' }, 400);
-    }
+    const params = BatchIdParam.parse({ batchId: c.req.param('batchId') });
 
     // Get detailed status from generation service
-    const generationStatus = await generationService.getGenerationStatus(batchId);
-    const images = db.getGeneratedImagesByBatch(batchId);
+    const generationStatus = await generationService.getGenerationStatus(params.batchId);
+    const images = db.getGeneratedImagesByBatch(params.batchId);
 
     const response: any = {
       status: generationStatus.status,
@@ -113,7 +103,10 @@ batches.get('/batches/:batchId/status', async (c) => {
     }
 
     return c.json(response);
-  } catch (error) {
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return c.json({ error: error.errors[0].message }, 400);
+    }
     console.error('Error fetching batch status:', error);
     return c.json({ error: 'Failed to fetch batch status' }, 500);
   }

@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import DatabaseService from '../services/database';
 import ImageService from '../services/images';
+import { GalleryQuerySchema, ImageIdParam } from '../validation/schemas';
 import * as path from 'path';
 
 const images = new Hono();
@@ -57,18 +58,16 @@ images.get('/preview/:filename', async (c) => {
 // GET /api/images - Get all images for gallery
 images.get('/', async (c) => {
   try {
-    const offset = parseInt(c.req.query('offset') || '0');
-    const limit = parseInt(c.req.query('limit') || '20');
+    const queryParams = GalleryQuerySchema.parse({
+      offset: c.req.query('offset'),
+      limit: c.req.query('limit')
+    });
 
-    if (offset < 0 || limit < 1 || limit > 100) {
-      return c.json({ error: 'Invalid offset or limit parameters' }, 400);
-    }
-
-    const allImages = db.getAllImages(offset, limit + 1); // Get one extra to check if there are more
+    const allImages = db.getAllImages(queryParams.offset, queryParams.limit + 1); // Get one extra to check if there are more
     const totalImages = db.getImageCount();
     
-    const hasMore = allImages.length > limit;
-    const images = allImages.slice(0, limit); // Remove the extra image if it exists
+    const hasMore = allImages.length > queryParams.limit;
+    const images = allImages.slice(0, queryParams.limit); // Remove the extra image if it exists
 
     const galleryItems = images.map((image: any) => ({
       id: image.id,
@@ -83,7 +82,10 @@ images.get('/', async (c) => {
       images: galleryItems,
       hasMore
     });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return c.json({ error: error.errors[0].message }, 400);
+    }
     console.error('Error fetching images:', error);
     return c.json({ error: 'Failed to fetch images' }, 500);
   }
@@ -92,14 +94,10 @@ images.get('/', async (c) => {
 // GET /api/images/:imageId/download - Download image with proper headers
 images.get('/:imageId/download', async (c) => {
   try {
-    const imageId = parseInt(c.req.param('imageId'));
-    
-    if (isNaN(imageId)) {
-      return c.json({ error: 'Invalid image ID' }, 400);
-    }
+    const params = ImageIdParam.parse({ imageId: c.req.param('imageId') });
 
     // Get image info from database
-    const imageInfo = db.getGeneratedImagesByBatch(0).find(img => img.id === imageId);
+    const imageInfo = db.getGeneratedImagesByBatch(0).find(img => img.id === params.imageId);
     
     if (!imageInfo) {
       return c.json({ error: 'Image not found' }, 404);
@@ -117,7 +115,10 @@ images.get('/:imageId/download', async (c) => {
     c.header('Content-Disposition', `attachment; filename="${imageInfo.filename}"`);
     
     return c.body(await file.arrayBuffer());
-  } catch (error) {
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return c.json({ error: error.errors[0].message }, 400);
+    }
     console.error('Error downloading image:', error);
     return c.json({ error: 'Failed to download image' }, 500);
   }

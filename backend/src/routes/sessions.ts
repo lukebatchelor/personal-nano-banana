@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import DatabaseService from '../services/database';
+import { CreateSessionSchema, SessionIdParam } from '../validation/schemas';
 
 const sessions = new Hono();
 const db = new DatabaseService();
@@ -8,15 +9,14 @@ const db = new DatabaseService();
 sessions.post('/', async (c) => {
   try {
     const body = await c.req.json();
-    const { name } = body;
+    const validatedData = CreateSessionSchema.parse(body);
 
-    if (!name || typeof name !== 'string') {
-      return c.json({ error: 'Session name is required' }, 400);
-    }
-
-    const session = db.createSession(name);
+    const session = db.createSession(validatedData.name);
     return c.json({ sessionId: session.id, session });
-  } catch (error) {
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return c.json({ error: error.errors[0].message }, 400);
+    }
     console.error('Error creating session:', error);
     return c.json({ error: 'Failed to create session' }, 500);
   }
@@ -44,20 +44,18 @@ sessions.get('/', async (c) => {
 // GET /api/sessions/:sessionId - Get session details
 sessions.get('/:sessionId', async (c) => {
   try {
-    const sessionId = parseInt(c.req.param('sessionId'));
-    
-    if (isNaN(sessionId)) {
-      return c.json({ error: 'Invalid session ID' }, 400);
-    }
-
-    const sessionWithBatches = db.getSessionWithBatches(sessionId);
+    const params = SessionIdParam.parse({ sessionId: c.req.param('sessionId') });
+    const sessionWithBatches = db.getSessionWithBatches(params.sessionId);
     
     if (!sessionWithBatches) {
       return c.json({ error: 'Session not found' }, 404);
     }
 
     return c.json(sessionWithBatches);
-  } catch (error) {
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      return c.json({ error: error.errors[0].message }, 400);
+    }
     console.error('Error fetching session:', error);
     return c.json({ error: 'Failed to fetch session' }, 500);
   }

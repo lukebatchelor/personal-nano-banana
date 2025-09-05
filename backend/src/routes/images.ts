@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import DatabaseService from '../services/database';
+import ImageService from '../services/images';
 import * as path from 'path';
 
 const images = new Hono();
 const db = new DatabaseService();
+const imageService = new ImageService(db);
 
 // GET /api/images/:filename - Serve full resolution images
 images.get('/:filename', async (c) => {
@@ -18,7 +20,7 @@ images.get('/:filename', async (c) => {
     }
 
     // Set appropriate headers
-    c.header('Content-Type', 'image/jpeg'); // Default to JPEG, should be dynamic based on file type
+    c.header('Content-Type', imageService.getImageMimeType(filename));
     c.header('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
     
     return c.body(await file.arrayBuffer());

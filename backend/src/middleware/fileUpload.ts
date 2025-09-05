@@ -1,4 +1,4 @@
-import { Context, Next } from 'hono';
+import type { Context, Next } from 'hono';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -15,11 +15,10 @@ export const fileUploadMiddleware = async (c: Context, next: Next) => {
 
   try {
     const body = await c.req.parseBody();
-    const files: File[] = [];
     const uploadedFiles: { id: string; filename: string; originalName: string }[] = [];
 
     // Process uploaded files
-    for (const [key, value] of Object.entries(body)) {
+    for (const [, value] of Object.entries(body)) {
       if (value instanceof File) {
         // Validate file type
         if (!ALLOWED_TYPES.includes(value.type)) {

@@ -1,4 +1,4 @@
-import { Context, Next } from 'hono';
+import type { Context, Next } from 'hono';
 
 export const corsMiddleware = async (c: Context, next: Next) => {
   c.res.headers.set('Access-Control-Allow-Origin', '*');
@@ -6,7 +6,7 @@ export const corsMiddleware = async (c: Context, next: Next) => {
   c.res.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   
   if (c.req.method === 'OPTIONS') {
-    return c.text('', 204);
+    return new Response('', { status: 204 });
   }
   
   await next();

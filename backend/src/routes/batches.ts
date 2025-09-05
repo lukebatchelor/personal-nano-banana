@@ -1,9 +1,11 @@
 import { Hono } from 'hono';
 import DatabaseService from '../services/database';
+import GenerationService from '../services/generation';
 import { fileUploadMiddleware } from '../middleware/fileUpload';
 
 const batches = new Hono();
 const db = new DatabaseService();
+const generationService = new GenerationService(db);
 
 // POST /api/sessions/:sessionId/batches - Create new generation batch
 batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => {
@@ -40,6 +42,14 @@ batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => 
       db.addReferenceImage(batch.id, file.filename, file.originalName);
     }
 
+    // Start the generation process
+    try {
+      await generationService.startGeneration(batch.id);
+    } catch (error) {
+      console.error('Error starting generation:', error);
+      // The batch status will already be set to failed by the generation service
+    }
+
     return c.json({ 
       batchId: batch.id, 
       status: 'pending' as const 
@@ -59,19 +69,16 @@ batches.get('/:batchId/status', async (c) => {
       return c.json({ error: 'Invalid batch ID' }, 400);
     }
 
-    const batch = db.getBatch(batchId);
-    
-    if (!batch) {
-      return c.json({ error: 'Batch not found' }, 404);
-    }
-
+    // Get detailed status from generation service
+    const generationStatus = await generationService.getGenerationStatus(batchId);
     const images = db.getGeneratedImagesByBatch(batchId);
 
     const response: any = {
-      status: batch.status
+      status: generationStatus.status,
+      ...(generationStatus.progress && { progress: generationStatus.progress })
     };
 
-    if (batch.status === 'completed' && images.length > 0) {
+    if (generationStatus.status === 'completed' && images.length > 0) {
       response.images = images.map(image => ({
         id: image.id,
         url: `/api/images/${image.filename}`,
@@ -79,8 +86,8 @@ batches.get('/:batchId/status', async (c) => {
       }));
     }
 
-    if (batch.status === 'failed' && batch.error_message) {
-      response.error = batch.error_message;
+    if (generationStatus.error) {
+      response.error = generationStatus.error;
     }
 
     return c.json(response);

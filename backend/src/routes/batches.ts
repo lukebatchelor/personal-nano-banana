@@ -1,7 +1,23 @@
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 import DatabaseService from '../services/database';
 import GenerationService from '../services/generation';
 import { fileUploadMiddleware } from '../middleware/fileUpload';
+
+// Define interface for uploaded file
+interface UploadedFile {
+  id: string;
+  filename: string;
+  originalName: string;
+}
+
+// Extend Hono's context to include uploadedFiles and parsedBody
+declare module 'hono' {
+  interface ContextVariableMap {
+    uploadedFiles: UploadedFile[];
+    parsedBody: Record<string, any>;
+  }
+}
 
 const batches = new Hono();
 const db = new DatabaseService();
@@ -10,6 +26,7 @@ const generationService = new GenerationService(db);
 // POST /api/sessions/:sessionId/batches - Create new generation batch
 batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => {
   try {
+    console.log('Starting batch creation...');
     const sessionId = parseInt(c.req.param('sessionId'));
     
     if (isNaN(sessionId)) {
@@ -22,8 +39,13 @@ batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => 
       return c.json({ error: 'Session not found' }, 404);
     }
 
-    const body = await c.req.json();
-    const { prompt, batchSize } = body;
+    // Get parsed body data from middleware
+    const parsedBody = c.get('parsedBody') as Record<string, any>;
+    console.log('Parsed body from middleware:', parsedBody);
+    
+    const prompt = parsedBody.prompt as string;
+    const batchSize = parseInt(parsedBody.batchSize as string);
+    console.log('Extracted values - prompt:', prompt, 'batchSize:', batchSize);
 
     if (!prompt || typeof prompt !== 'string') {
       return c.json({ error: 'Prompt is required' }, 400);
@@ -60,8 +82,8 @@ batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => 
   }
 });
 
-// GET /api/batches/:batchId/status - Get batch status and results
-batches.get('/:batchId/status', async (c) => {
+// GET /api/batches/:batchId/status - Get batch status and results  
+batches.get('/batches/:batchId/status', async (c) => {
   try {
     const batchId = parseInt(c.req.param('batchId'));
     

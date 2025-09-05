@@ -50,10 +50,10 @@ export function useCreateBatch() {
   });
 }
 
-export function useBatchStatus(batchId: number, enabled: boolean = true) {
+export function useBatchStatus(batchId: number | null, enabled: boolean = true) {
   return useQuery({
-    queryKey: queryKeys.batchStatus(batchId),
-    queryFn: () => apiService.getBatchStatus(batchId),
+    queryKey: queryKeys.batchStatus(batchId!),
+    queryFn: () => apiService.getBatchStatus(batchId!),
     enabled: enabled && !!batchId,
     refetchInterval: (data) => {
       // Auto-refresh if still processing

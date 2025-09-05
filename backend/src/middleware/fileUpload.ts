@@ -8,13 +8,25 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 export const fileUploadMiddleware = async (c: Context, next: Next) => {
-  if (c.req.method !== 'POST' || !c.req.header('content-type')?.includes('multipart/form-data')) {
+  console.log('FileUpload middleware - method:', c.req.method, 'content-type:', c.req.header('content-type'));
+  
+  if (c.req.method !== 'POST') {
+    console.log('Skipping file upload middleware - not POST');
+    await next();
+    return;
+  }
+
+  const contentType = c.req.header('content-type');
+  if (!contentType?.includes('multipart/form-data')) {
+    console.log('Skipping file upload middleware - not multipart/form-data');
     await next();
     return;
   }
 
   try {
+    console.log('Parsing body in middleware...');
     const body = await c.req.parseBody();
+    console.log('Body parsed successfully:', Object.keys(body));
     const uploadedFiles: { id: string; filename: string; originalName: string }[] = [];
 
     // Process uploaded files
@@ -47,8 +59,9 @@ export const fileUploadMiddleware = async (c: Context, next: Next) => {
       }
     }
 
-    // Add uploaded files to context
+    // Add uploaded files and parsed body to context
     c.set('uploadedFiles', uploadedFiles);
+    c.set('parsedBody', body);
     
     await next();
   } catch (error) {

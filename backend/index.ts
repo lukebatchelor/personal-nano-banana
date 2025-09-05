@@ -33,7 +33,7 @@ app.get('/api/health', (c) => {
 
 // Mount API routes
 app.route('/api/sessions', sessions);
-app.route('/api', batches); // batches route includes /sessions/:sessionId/batches
+app.route('/api', batches); // batches route includes /sessions/:sessionId/batches and /batches/:id/status
 app.route('/api/images', images);
 app.route('/api/upload', upload);
 

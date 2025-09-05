@@ -51,8 +51,7 @@ export default function Home() {
 
       setActiveBatchId(batchResult.batchId);
       
-      // Clear the form
-      setPrompt('');
+      // Don't clear the prompt - keep it for potential reuse
     } catch (error) {
       console.error('Generation failed:', error);
       alert('Failed to start generation. Please try again.');
@@ -213,7 +212,11 @@ export default function Home() {
                       </span>
                     </div>
                     <button
-                      onClick={() => setActiveBatchId(batch.id)}
+                      onClick={() => {
+                        setActiveBatchId(batch.id);
+                        setPrompt(batch.prompt);
+                        setBatchSize(batch.batch_size);
+                      }}
                       className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                     >
                       View Status

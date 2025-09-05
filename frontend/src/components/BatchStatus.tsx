@@ -79,13 +79,13 @@ export default function BatchStatus() {
       {batchStatus.images && batchStatus.images.length > 0 && (
         <div>
           <h4 className="text-sm font-medium text-gray-900 mb-3">Generated Images</h4>
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="flex gap-4 overflow-x-auto pb-2">
             {batchStatus.images.map((image) => (
-              <div key={image.id} className="relative group cursor-pointer">
+              <div key={image.id} className="flex-shrink-0 cursor-pointer">
                 <img
                   src={`http://localhost:3000${image.previewUrl}`}
                   alt="Generated image"
-                  className="w-full aspect-square object-cover rounded-lg shadow-sm group-hover:shadow-md transition-shadow"
+                  className="w-32 h-32 object-cover rounded-lg shadow-sm hover:shadow-md transition-shadow"
                   onClick={() => window.open(`http://localhost:3000${image.url}`, '_blank')}
                 />
               </div>

@@ -2,14 +2,13 @@ import Replicate from 'replicate';
 
 interface GenerationRequest {
   prompt: string;
-  batchSize: number;
   referenceImageUrls?: string[];
 }
 
 interface GenerationResult {
   id: string;
   status: 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled' | 'aborted';
-  output?: string[];
+  output?: string;
   error?: string;
 }
 
@@ -43,7 +42,6 @@ class ReplicateService {
         model: this.modelVersion,
         input: {
           prompt: request.prompt,
-          num_outputs: request.batchSize,
           ...(request.referenceImageUrls && request.referenceImageUrls.length > 0 && {
             reference_images: request.referenceImageUrls
           })
@@ -63,10 +61,7 @@ class ReplicateService {
       return {
         id: predictionId,
         status: 'succeeded',
-        output: [
-          'https://via.placeholder.com/512x512/FF6B6B/FFFFFF?text=Mock+Image+1',
-          'https://via.placeholder.com/512x512/4ECDC4/FFFFFF?text=Mock+Image+2'
-        ]
+        output: 'https://via.placeholder.com/512x512/FF6B6B/FFFFFF?text=Mock+Image'
       };
     }
 
@@ -76,7 +71,7 @@ class ReplicateService {
       return {
         id: prediction.id,
         status: prediction.status,
-        output: prediction.output as string[] | undefined,
+        output: prediction.output as string | undefined,
         error: prediction.error as string | undefined
       };
     } catch (error) {

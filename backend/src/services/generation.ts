@@ -6,14 +6,24 @@ import type { Batch } from '../types';
 interface GenerationJob {
   batchId: number;
   predictionId: string;
+  imageIndex: number;
   startTime: Date;
+}
+
+interface BatchProgress {
+  batchId: number;
+  totalImages: number;
+  completed: number;
+  failed: number;
+  processing: number;
 }
 
 class GenerationService {
   private replicate: ReplicateService;
   private imageService: ImageService;
   private db: DatabaseService;
-  private activeJobs = new Map<number, GenerationJob>();
+  private activeJobs = new Map<string, GenerationJob>(); // predictionId -> job
+  private maxConcurrency = 4; // Configurable max concurrent requests
 
   constructor(db: DatabaseService) {
     this.db = db;
@@ -41,45 +51,68 @@ class GenerationService {
         `${process.env.BASE_URL || 'http://localhost:3000'}/api/images/${img.filename}`
       );
 
-      // Start generation with Replicate
-      const predictionId = await this.replicate.generateImages({
-        prompt: batch.prompt,
-        batchSize: batch.batch_size,
-        referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined
-      });
+      // Start individual generation requests for each image
+      const jobs: GenerationJob[] = [];
+      
+      for (let i = 0; i < batch.batch_size; i++) {
+        const predictionId = await this.replicate.generateImages({
+          prompt: batch.prompt,
+          referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined
+        });
 
-      // Track the job
-      this.activeJobs.set(batchId, {
-        batchId,
-        predictionId,
-        startTime: new Date()
-      });
+        // Create database record for tracking
+        this.db.createPredictionJob(batchId, predictionId, i);
 
-      // Start polling for completion in the background
-      this.pollForCompletion(batchId, predictionId);
+        const job: GenerationJob = {
+          batchId,
+          predictionId,
+          imageIndex: i,
+          startTime: new Date()
+        };
+
+        jobs.push(job);
+        this.activeJobs.set(predictionId, job);
+
+        console.log(`Started prediction ${i + 1}/${batch.batch_size} for batch ${batchId}: ${predictionId}`);
+      }
+
+      // Start polling for completion of all jobs
+      jobs.forEach(job => {
+        this.pollForCompletion(job.predictionId);
+      });
       
     } catch (error) {
       console.error(`Error starting generation for batch ${batchId}:`, error);
       this.db.updateBatchStatus(batchId, 'failed', error instanceof Error ? error.message : 'Unknown error');
-      this.activeJobs.delete(batchId);
+      // Clean up any created jobs on failure
+      jobs.forEach(job => this.activeJobs.delete(job.predictionId));
       throw error;
     }
   }
 
-  private async pollForCompletion(batchId: number, predictionId: string): Promise<void> {
+  private async pollForCompletion(predictionId: string): Promise<void> {
     const maxWaitTime = 300000; // 5 minutes
     const pollInterval = 3000; // Poll every 3 seconds
     const startTime = Date.now();
+
+    const job = this.activeJobs.get(predictionId);
+    if (!job) {
+      console.error(`No active job found for prediction ${predictionId}`);
+      return;
+    }
 
     try {
       while (Date.now() - startTime < maxWaitTime) {
         const result = await this.replicate.getGenerationStatus(predictionId);
 
+        // Update database status
+        this.db.updatePredictionJobStatus(predictionId, result.status, result.error);
+
         if (result.status === 'succeeded') {
-          await this.handleSuccess(batchId, result.output || []);
+          await this.handleJobSuccess(job, result.output || '');
           break;
         } else if (result.status === 'failed' || result.status === 'canceled' || result.status === 'aborted') {
-          await this.handleFailure(batchId, result.error || 'Generation failed');
+          await this.handleJobFailure(job, result.error || 'Generation failed');
           break;
         }
 
@@ -92,71 +125,98 @@ class GenerationService {
 
       // Handle timeout
       if (Date.now() - startTime >= maxWaitTime) {
-        await this.handleFailure(batchId, 'Generation timed out');
+        await this.handleJobFailure(job, 'Generation timed out');
       }
     } catch (error) {
-      console.error(`Error polling for batch ${batchId}:`, error);
-      await this.handleFailure(batchId, error instanceof Error ? error.message : 'Polling error');
+      console.error(`Error polling for prediction ${predictionId}:`, error);
+      await this.handleJobFailure(job, error instanceof Error ? error.message : 'Polling error');
     } finally {
-      this.activeJobs.delete(batchId);
+      this.activeJobs.delete(predictionId);
+      
+      // Check if batch is complete
+      await this.checkBatchCompletion(job.batchId);
     }
   }
 
-  private async handleSuccess(batchId: number, output: any): Promise<void> {
+  private async handleJobSuccess(job: GenerationJob, imageUrl: string): Promise<void> {
     try {
-      let imageUrls: string[] = [];
-      
-      // Handle different output formats from Replicate
-      if (Array.isArray(output)) {
-        imageUrls = output;
-      } else if (typeof output === 'string') {
-        // Single string URL
-        imageUrls = [output];
-      } else if (output && typeof output === 'object') {
-        // Could be an object with URLs or other structure
-        if (output.images && Array.isArray(output.images)) {
-          imageUrls = output.images;
-        } else if (output.url) {
-          imageUrls = [output.url];
-        } else {
-          console.warn('Unexpected output format:', output);
-          imageUrls = [];
-        }
+      if (!imageUrl || typeof imageUrl !== 'string') {
+        throw new Error('No valid image URL found in output');
       }
 
-      if (!imageUrls || imageUrls.length === 0) {
-        throw new Error('No valid image URLs found in output');
-      }
-
-      // Process and store images
-      const job = this.activeJobs.get(batchId);
-      await this.imageService.processGeneratedImages(imageUrls, batchId, job?.predictionId);
-
-      // Update batch status to completed
-      this.db.updateBatchStatus(batchId, 'completed');
+      // Process and store the single image
+      await this.imageService.processGeneratedImages([imageUrl], job.batchId, job.predictionId);
       
-      console.log(`Successfully completed generation for batch ${batchId} with ${imageUrls.length} images`);
+      console.log(`Successfully completed prediction ${job.predictionId} for batch ${job.batchId} (image ${job.imageIndex + 1})`);
     } catch (error) {
-      console.error(`Error handling success for batch ${batchId}:`, error);
-      await this.handleFailure(batchId, error instanceof Error ? error.message : 'Error processing results');
+      console.error(`Error handling success for job ${job.predictionId}:`, error);
+      await this.handleJobFailure(job, error instanceof Error ? error.message : 'Error processing result');
     }
   }
 
-  private async handleFailure(batchId: number, errorMessage: string): Promise<void> {
-    this.db.updateBatchStatus(batchId, 'failed', errorMessage);
-    console.error(`Generation failed for batch ${batchId}: ${errorMessage}`);
+  private async handleJobFailure(job: GenerationJob, errorMessage: string): Promise<void> {
+    console.error(`Prediction failed for ${job.predictionId}: ${errorMessage}`);
+  }
+
+  private async checkBatchCompletion(batchId: number): Promise<void> {
+    const progress = await this.getBatchProgress(batchId);
+    const total = progress.completed + progress.failed + progress.processing;
+    
+    if (progress.processing === 0) {
+      // All jobs are done (either completed or failed)
+      if (progress.completed > 0) {
+        // At least some images succeeded
+        this.db.updateBatchStatus(batchId, 'completed');
+        console.log(`Batch ${batchId} completed: ${progress.completed}/${total} images successful, ${progress.failed} failed`);
+      } else {
+        // All jobs failed
+        this.db.updateBatchStatus(batchId, 'failed', 'All image generations failed');
+        console.log(`Batch ${batchId} failed: all ${progress.failed} image generations failed`);
+      }
+    }
+  }
+
+  private async getBatchProgress(batchId: number): Promise<BatchProgress> {
+    const jobStatuses = this.db.getBatchJobProgress(batchId);
+    const progress: BatchProgress = {
+      batchId,
+      totalImages: 0,
+      completed: 0,
+      failed: 0,
+      processing: 0
+    };
+
+    for (const status of jobStatuses) {
+      progress.totalImages += status.count;
+      if (status.status === 'succeeded') {
+        progress.completed += status.count;
+      } else if (status.status === 'failed' || status.status === 'canceled') {
+        progress.failed += status.count;
+      } else {
+        progress.processing += status.count;
+      }
+    }
+
+    return progress;
   }
 
   async cancelGeneration(batchId: number): Promise<void> {
-    const job = this.activeJobs.get(batchId);
-    if (!job) {
+    const activeBatchJobs = Array.from(this.activeJobs.values()).filter(job => job.batchId === batchId);
+    
+    if (activeBatchJobs.length === 0) {
       throw new Error(`No active generation found for batch ${batchId}`);
     }
 
     try {
-      await this.replicate.cancelGeneration(job.predictionId);
+      // Cancel all active jobs for this batch
+      for (const job of activeBatchJobs) {
+        await this.replicate.cancelGeneration(job.predictionId);
+        this.db.updatePredictionJobStatus(job.predictionId, 'canceled');
+        this.activeJobs.delete(job.predictionId);
+      }
+      
       this.db.updateBatchStatus(batchId, 'failed', 'Generation canceled by user');
-      this.activeJobs.delete(batchId);
+      console.log(`Canceled ${activeBatchJobs.length} active jobs for batch ${batchId}`);
     } catch (error) {
       console.error(`Error canceling generation for batch ${batchId}:`, error);
       throw error;
@@ -168,7 +228,7 @@ class GenerationService {
   }
 
   isGenerationActive(batchId: number): boolean {
-    return this.activeJobs.has(batchId);
+    return Array.from(this.activeJobs.values()).some(job => job.batchId === batchId);
   }
 
   async getGenerationStatus(batchId: number): Promise<{ 
@@ -182,13 +242,17 @@ class GenerationService {
       throw new Error(`Batch ${batchId} not found`);
     }
 
-    const job = this.activeJobs.get(batchId);
     let progress: string | undefined;
 
-    if (job && batch.status === 'processing') {
+    if (batch.status === 'processing') {
       try {
-        const result = await this.replicate.getGenerationStatus(job.predictionId);
-        progress = result.status;
+        const batchProgress = await this.getBatchProgress(batchId);
+        const total = batchProgress.totalImages;
+        const completed = batchProgress.completed;
+        
+        if (total > 0) {
+          progress = `${completed}/${total} images completed`;
+        }
       } catch (error) {
         console.error(`Error getting progress for batch ${batchId}:`, error);
       }
@@ -197,8 +261,7 @@ class GenerationService {
     return {
       status: batch.status,
       progress,
-      error: batch.error_message || undefined,
-      predictionId: job?.predictionId
+      error: batch.error_message || undefined
     };
   }
 }

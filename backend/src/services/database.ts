@@ -59,10 +59,26 @@ class DatabaseService {
       )
     `);
 
+    // Create prediction_jobs table to track individual Replicate requests
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS prediction_jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        batch_id INTEGER REFERENCES batches(id),
+        prediction_id TEXT NOT NULL UNIQUE,
+        image_index INTEGER NOT NULL,
+        status TEXT CHECK(status IN ('pending', 'processing', 'succeeded', 'failed', 'canceled')) DEFAULT 'pending',
+        error_message TEXT,
+        started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        completed_at DATETIME
+      )
+    `);
+
     // Create indexes for better query performance
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_batches_session_id ON batches(session_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_batch_reference_images_batch_id ON batch_reference_images(batch_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_generated_images_batch_id ON generated_images(batch_id)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_prediction_jobs_batch_id ON prediction_jobs(batch_id)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_prediction_jobs_prediction_id ON prediction_jobs(prediction_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_batches_created_at ON batches(created_at DESC)`);
   }
@@ -182,6 +198,51 @@ class DatabaseService {
     const stmt = this.db.prepare('SELECT COUNT(*) as count FROM generated_images');
     const result = stmt.get() as { count: number };
     return result.count;
+  }
+
+  // Prediction job operations
+  createPredictionJob(batchId: number, predictionId: string, imageIndex: number) {
+    const stmt = this.db.prepare(`
+      INSERT INTO prediction_jobs (batch_id, prediction_id, image_index) 
+      VALUES (?, ?, ?) 
+      RETURNING *
+    `);
+    return stmt.get(batchId, predictionId, imageIndex);
+  }
+
+  getPredictionJobsByBatch(batchId: number) {
+    const stmt = this.db.prepare(`
+      SELECT * FROM prediction_jobs 
+      WHERE batch_id = ? 
+      ORDER BY image_index ASC
+    `);
+    return stmt.all(batchId);
+  }
+
+  getPredictionJob(predictionId: string) {
+    const stmt = this.db.prepare('SELECT * FROM prediction_jobs WHERE prediction_id = ?');
+    return stmt.get(predictionId);
+  }
+
+  updatePredictionJobStatus(predictionId: string, status: string, errorMessage?: string) {
+    const stmt = this.db.prepare(`
+      UPDATE prediction_jobs 
+      SET status = ?, error_message = ?, completed_at = CURRENT_TIMESTAMP 
+      WHERE prediction_id = ?
+    `);
+    return stmt.run(status, errorMessage || null, predictionId);
+  }
+
+  getBatchJobProgress(batchId: number) {
+    const stmt = this.db.prepare(`
+      SELECT 
+        status,
+        COUNT(*) as count
+      FROM prediction_jobs 
+      WHERE batch_id = ? 
+      GROUP BY status
+    `);
+    return stmt.all(batchId);
   }
 
   close() {

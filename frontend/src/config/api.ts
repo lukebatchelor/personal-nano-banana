@@ -7,3 +7,7 @@ export const getImageUrl = (filename: string): string => {
 export const getPreviewUrl = (filename: string): string => {
   return `${API_BASE_URL}/api/images/preview/${filename}`;
 };
+
+export const getReferenceImageUrl = (filename: string): string => {
+  return `${API_BASE_URL}/api/images/reference/${filename}`;
+};

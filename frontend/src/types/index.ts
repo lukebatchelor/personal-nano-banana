@@ -29,18 +29,39 @@ export interface GeneratedImage {
   created_at: string;
 }
 
+export interface ReferenceImage {
+  id: number;
+  filename: string;
+  originalName: string | null;
+  url?: string;
+}
+
 export interface BatchWithImages extends Batch {
   images: GeneratedImage[];
+  referenceImages: ReferenceImage[];
 }
 
 export interface SessionWithBatches extends Session {
   batches: BatchWithImages[];
 }
 
+export interface ExistingReferenceImage {
+  id: number;
+  filename: string;
+  originalName: string | null;
+  url: string;
+}
+
+export interface ReferenceImageState {
+  newFiles: File[];
+  existingReferences: ExistingReferenceImage[];
+}
+
 export interface BatchRequest {
   prompt: string;
   batchSize: number;
-  referenceImages?: File[];
+  newReferenceImages?: File[];
+  existingReferenceImageIds?: number[];
 }
 
 export interface BatchStatusResponse {

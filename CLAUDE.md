@@ -1,0 +1,1 @@
+- remember that when running the backend server you MUST use the `--watch` flag

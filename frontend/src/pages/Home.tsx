@@ -3,12 +3,17 @@ import { useAppStore } from '../store/appStore';
 import { useSessions, useCreateSession, useCreateBatch, useSession } from '../hooks/useApi';
 import BatchStatus from '../components/BatchStatus';
 import ImageModal from '../components/ImageModal';
-import type { GeneratedImage } from '../types';
-import { getPreviewUrl } from '../config/api';
+import ReferenceImageUpload from '../components/ReferenceImageUpload';
+import type { GeneratedImage, ReferenceImageState, ExistingReferenceImage } from '../types';
+import { getPreviewUrl, getReferenceImageUrl } from '../config/api';
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [batchSize, setBatchSize] = useState(2);
+  const [referenceImageState, setReferenceImageState] = useState<ReferenceImageState>({
+    newFiles: [],
+    existingReferences: []
+  });
   const [showNewSessionInput, setShowNewSessionInput] = useState(false);
   const [newSessionName, setNewSessionName] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
@@ -52,6 +57,8 @@ export default function Home() {
         request: {
           prompt: prompt.trim(),
           batchSize,
+          newReferenceImages: referenceImageState.newFiles.length > 0 ? referenceImageState.newFiles : undefined,
+          existingReferenceImageIds: referenceImageState.existingReferences.length > 0 ? referenceImageState.existingReferences.map(ref => ref.id) : undefined,
         },
       });
 
@@ -141,6 +148,13 @@ export default function Home() {
               />
             </div>
 
+            {/* Reference Images */}
+            <ReferenceImageUpload
+              onImagesChange={setReferenceImageState}
+              initialState={referenceImageState}
+              disabled={isGenerating}
+            />
+
             {/* Batch Size Selector */}
             <div>
               <label htmlFor="batchSize" className="block text-sm font-medium text-gray-700 mb-2">
@@ -225,17 +239,41 @@ export default function Home() {
                     </div>
                     <button
                       onClick={() => {
-                        setActiveBatchId(batch.id);
                         setPrompt(batch.prompt);
                         setBatchSize(batch.batch_size);
+                        
+                        // Set reference image state with existing references
+                        const existingRefs: ExistingReferenceImage[] = (batch.referenceImages || []).map(ref => ({
+                          id: ref.id,
+                          filename: ref.filename,
+                          originalName: ref.originalName,
+                          url: getReferenceImageUrl(ref.filename) // Always use helper method for correct URL
+                        }));
+                        setReferenceImageState({
+                          newFiles: [],
+                          existingReferences: existingRefs
+                        });
                       }}
-                      className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                      className="text-gray-500 hover:text-gray-700 p-1"
+                      title="Copy this batch settings"
                     >
-                      View Status
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
                     </button>
                   </div>
                   
                   <p className="text-gray-900 text-sm mb-3 line-clamp-2">{batch.prompt}</p>
+                  
+                  {/* Reference Images Indicator */}
+                  {batch.referenceImages && batch.referenceImages.length > 0 && (
+                    <div className="flex items-center gap-1 mb-3 text-xs text-gray-500">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <span>{batch.referenceImages.length} reference image{batch.referenceImages.length > 1 ? 's' : ''}</span>
+                    </div>
+                  )}
                   
                   {batch.images && batch.images.length > 0 && (
                     <div className="flex gap-2 overflow-x-auto">

@@ -8,6 +8,29 @@ const images = new Hono();
 const db = new DatabaseService();
 const imageService = new ImageService(db);
 
+// GET /api/images/reference/:filename - Serve reference images from uploads
+images.get('/reference/:filename', async (c) => {
+  try {
+    const filename = c.req.param('filename');
+    const filePath = path.join('uploads', filename);
+    
+    const file = Bun.file(filePath);
+    
+    if (!(await file.exists())) {
+      return c.json({ error: 'Reference image not found' }, 404);
+    }
+
+    // Set appropriate headers
+    c.header('Content-Type', imageService.getImageMimeType(filename));
+    c.header('Cache-Control', 'public, max-age=31536000'); // Cache for 1 year
+    
+    return c.body(await file.arrayBuffer());
+  } catch (error) {
+    console.error('Error serving reference image:', error);
+    return c.json({ error: 'Failed to serve reference image' }, 500);
+  }
+});
+
 // GET /api/images/:filename - Serve full resolution images
 images.get('/:filename', async (c) => {
   try {

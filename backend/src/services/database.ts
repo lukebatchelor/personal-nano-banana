@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { Session, Batch, BatchReferenceImage, GeneratedImage, BatchWithImages, SessionWithBatches } from '../types';
+import type { Session, Batch, BatchReferenceImage, GeneratedImage, BatchWithImages, SessionWithBatches, ReferenceImage, UploadedReferenceImage } from '../types';
 
 class DatabaseService {
   private db: Database;
@@ -34,13 +34,39 @@ class DatabaseService {
       )
     `);
 
+    // Create reference_images table (internal reference image tracking)
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS reference_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        filename TEXT NOT NULL,
+        original_name TEXT,
+        file_hash_sha256 TEXT UNIQUE,
+        content_type TEXT,
+        file_size INTEGER,
+        uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Create uploaded_reference_images table (Replicate upload tracking)
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS uploaded_reference_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reference_image_id INTEGER REFERENCES reference_images(id),
+        replicate_file_id TEXT NOT NULL,
+        replicate_expires_at DATETIME,
+        uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        replicate_metadata TEXT
+      )
+    `);
+
     // Create batch_reference_images table
     this.db.run(`
       CREATE TABLE IF NOT EXISTS batch_reference_images (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         batch_id INTEGER REFERENCES batches(id),
         filename TEXT NOT NULL,
-        original_name TEXT
+        original_name TEXT,
+        reference_image_id INTEGER REFERENCES reference_images(id)
       )
     `);
 
@@ -66,7 +92,7 @@ class DatabaseService {
         batch_id INTEGER REFERENCES batches(id),
         prediction_id TEXT NOT NULL UNIQUE,
         image_index INTEGER NOT NULL,
-        status TEXT CHECK(status IN ('pending', 'processing', 'succeeded', 'failed', 'canceled')) DEFAULT 'pending',
+        status TEXT CHECK(status IN ('pending', 'starting', 'processing', 'succeeded', 'failed', 'canceled', 'aborted')) DEFAULT 'pending',
         error_message TEXT,
         started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         completed_at DATETIME
@@ -81,6 +107,10 @@ class DatabaseService {
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_prediction_jobs_prediction_id ON prediction_jobs(prediction_id)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_sessions_created_at ON sessions(created_at DESC)`);
     this.db.run(`CREATE INDEX IF NOT EXISTS idx_batches_created_at ON batches(created_at DESC)`);
+    // New indexes for reference image system
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_reference_images_hash ON reference_images(file_hash_sha256)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_uploaded_ref_expires ON uploaded_reference_images(replicate_expires_at)`);
+    this.db.run(`CREATE INDEX IF NOT EXISTS idx_uploaded_ref_image_id ON uploaded_reference_images(reference_image_id)`);
   }
 
   // Session operations
@@ -124,7 +154,15 @@ class DatabaseService {
     
     return batches.map(batch => ({
       ...batch,
-      images: this.getGeneratedImagesByBatch(batch.id)
+      images: this.getGeneratedImagesByBatch(batch.id),
+      referenceImages: this.getReferenceImagesByBatch(batch.id)
+        .filter(ref => ref.reference_image_id !== null)
+        .map(ref => ({
+          id: ref.reference_image_id!, // Use the actual reference image ID, not the batch-reference relationship ID
+          filename: ref.filename,
+          originalName: ref.original_name,
+          url: `/api/images/reference/${ref.filename}`
+        }))
     }));
   }
 
@@ -136,17 +174,102 @@ class DatabaseService {
     stmt.run(status, completedAt, errorMessage || null, id);
   }
 
-  // Reference image operations
-  addReferenceImage(batchId: number, filename: string, originalName?: string): BatchReferenceImage {
+  // Internal reference image operations
+  createReferenceImage(
+    filename: string, 
+    originalName: string, 
+    fileHashSha256: string, 
+    contentType: string, 
+    fileSize: number
+  ): ReferenceImage {
+    const stmt = this.db.prepare(`
+      INSERT INTO reference_images (filename, original_name, file_hash_sha256, content_type, file_size) 
+      VALUES (?, ?, ?, ?, ?) 
+      RETURNING *
+    `);
+    return stmt.get(filename, originalName, fileHashSha256, contentType, fileSize) as ReferenceImage;
+  }
+
+  getReferenceImageByHash(fileHashSha256: string): ReferenceImage | null {
+    const stmt = this.db.prepare('SELECT * FROM reference_images WHERE file_hash_sha256 = ?');
+    return stmt.get(fileHashSha256) as ReferenceImage | null;
+  }
+
+  getReferenceImage(id: number): ReferenceImage | null {
+    const stmt = this.db.prepare('SELECT * FROM reference_images WHERE id = ?');
+    return stmt.get(id) as ReferenceImage | null;
+  }
+
+  // Replicate upload tracking operations
+  createUploadedReferenceImage(
+    referenceImageId: number,
+    replicateFileId: string,
+    replicateExpiresAt: string,
+    replicateMetadata?: string
+  ): UploadedReferenceImage {
+    const stmt = this.db.prepare(`
+      INSERT INTO uploaded_reference_images 
+      (reference_image_id, replicate_file_id, replicate_expires_at, replicate_metadata) 
+      VALUES (?, ?, ?, ?) 
+      RETURNING *
+    `);
+    return stmt.get(referenceImageId, replicateFileId, replicateExpiresAt, replicateMetadata || null) as UploadedReferenceImage;
+  }
+
+  getUploadedReferenceImage(referenceImageId: number): UploadedReferenceImage | null {
     const stmt = this.db.prepare(
-      'INSERT INTO batch_reference_images (batch_id, filename, original_name) VALUES (?, ?, ?) RETURNING *'
+      'SELECT * FROM uploaded_reference_images WHERE reference_image_id = ? ORDER BY uploaded_at DESC LIMIT 1'
     );
-    return stmt.get(batchId, filename, originalName || null) as BatchReferenceImage;
+    return stmt.get(referenceImageId) as UploadedReferenceImage | null;
+  }
+
+  getExpiredUploadedReferenceImages(): UploadedReferenceImage[] {
+    // Get uploads that expire in less than 4 hours (20-hour grace period)
+    const graceHours = 20;
+    const stmt = this.db.prepare(`
+      SELECT * FROM uploaded_reference_images 
+      WHERE datetime(replicate_expires_at) <= datetime('now', '+${graceHours} hours')
+    `);
+    return stmt.all() as UploadedReferenceImage[];
+  }
+
+  // Batch reference image operations (updated)
+  addReferenceImageToBatch(
+    batchId: number, 
+    filename: string, 
+    originalName: string, 
+    referenceImageId: number
+  ): BatchReferenceImage {
+    const stmt = this.db.prepare(`
+      INSERT INTO batch_reference_images 
+      (batch_id, filename, original_name, reference_image_id) 
+      VALUES (?, ?, ?, ?) 
+      RETURNING *
+    `);
+    return stmt.get(batchId, filename, originalName, referenceImageId) as BatchReferenceImage;
   }
 
   getReferenceImagesByBatch(batchId: number): BatchReferenceImage[] {
     const stmt = this.db.prepare('SELECT * FROM batch_reference_images WHERE batch_id = ?');
     return stmt.all(batchId) as BatchReferenceImage[];
+  }
+
+  getBatchReferenceImagesWithDetails(batchId: number) {
+    const stmt = this.db.prepare(`
+      SELECT 
+        bri.*,
+        ri.file_hash_sha256,
+        ri.content_type,
+        ri.file_size,
+        ri.uploaded_at as ref_uploaded_at,
+        uri.replicate_file_id,
+        uri.replicate_expires_at
+      FROM batch_reference_images bri
+      LEFT JOIN reference_images ri ON bri.reference_image_id = ri.id
+      LEFT JOIN uploaded_reference_images uri ON ri.id = uri.reference_image_id
+      WHERE bri.batch_id = ?
+    `);
+    return stmt.all(batchId);
   }
 
   // Generated image operations

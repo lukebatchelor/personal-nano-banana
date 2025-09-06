@@ -42,10 +42,16 @@ class ApiService {
     formData.append('prompt', request.prompt);
     formData.append('batchSize', request.batchSize.toString());
     
-    if (request.referenceImages) {
-      request.referenceImages.forEach((file, index) => {
+    // Handle new reference image files
+    if (request.newReferenceImages) {
+      request.newReferenceImages.forEach((file, index) => {
         formData.append(`referenceImage_${index}`, file);
       });
+    }
+    
+    // Handle existing reference image IDs
+    if (request.existingReferenceImageIds) {
+      formData.append('existingReferenceImageIds', JSON.stringify(request.existingReferenceImageIds));
     }
 
     const response = await fetch(`${API_BASE}/sessions/${sessionId}/batches`, {

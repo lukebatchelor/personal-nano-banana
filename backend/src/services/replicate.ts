@@ -3,6 +3,7 @@ import Replicate from 'replicate';
 interface GenerationRequest {
   prompt: string;
   referenceImageUrls?: string[];
+  numOutputs?: number;
 }
 
 interface GenerationResult {
@@ -43,8 +44,9 @@ class ReplicateService {
         input: {
           prompt: request.prompt,
           ...(request.referenceImageUrls && request.referenceImageUrls.length > 0 && {
-            reference_images: request.referenceImageUrls
-          })
+            image_input: request.referenceImageUrls
+          }),
+          output_format: "jpg"
         }
       });
 

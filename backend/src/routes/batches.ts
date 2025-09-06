@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Context } from 'hono';
 import DatabaseService from '../services/database';
 import GenerationService from '../services/generation';
+import ReferenceImageService from '../services/referenceImages';
 import { fileUploadMiddleware } from '../middleware/fileUpload';
 import { CreateBatchSchema, SessionIdParam, BatchIdParam } from '../validation/schemas';
 
@@ -23,6 +24,7 @@ declare module 'hono' {
 const batches = new Hono();
 const db = new DatabaseService();
 const generationService = new GenerationService(db);
+const referenceImageService = new ReferenceImageService(db);
 
 // POST /api/sessions/:sessionId/batches - Create new generation batch
 batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => {
@@ -49,10 +51,70 @@ batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => 
     // Create the batch
     const batch = db.createBatch(sessionParams.sessionId, validatedData.prompt, validatedData.batchSize);
 
-    // Handle uploaded reference images if any
+    // Handle reference images (both new files and existing references)
     const uploadedFiles = c.get('uploadedFiles') || [];
-    for (const file of uploadedFiles) {
-      db.addReferenceImage(batch.id, file.filename, file.originalName);
+    const existingReferenceImageIds = parsedBody.existingReferenceImageIds 
+      ? JSON.parse(parsedBody.existingReferenceImageIds) 
+      : [];
+    
+    console.log('Processing reference images:', {
+      newFiles: uploadedFiles.length,
+      existingIds: existingReferenceImageIds.length
+    });
+    
+    // Process new uploaded files
+    if (uploadedFiles.length > 0) {
+      const fileUploads = [];
+      
+      for (const file of uploadedFiles) {
+        const filePath = `uploads/${file.filename}`;
+        const bunFile = Bun.file(filePath);
+        const buffer = await bunFile.arrayBuffer();
+        
+        // Use same flexible content type detection as upload route
+        let contentType = bunFile.type;
+        if (!contentType || contentType === 'application/octet-stream') {
+          const ext = file.filename.toLowerCase();
+          if (ext.endsWith('.png')) contentType = 'image/png';
+          else if (ext.endsWith('.jpg') || ext.endsWith('.jpeg')) contentType = 'image/jpeg';
+          else if (ext.endsWith('.webp')) contentType = 'image/webp';
+          else if (ext.endsWith('.gif')) contentType = 'image/gif';
+          else contentType = 'image/jpeg';
+        }
+        
+        fileUploads.push({
+          filename: file.filename,
+          originalName: file.originalName,
+          buffer: Buffer.from(buffer),
+          contentType
+        });
+      }
+
+      // Process new reference images and get their IDs
+      const referenceResults = await referenceImageService.processReferenceImages(fileUploads);
+      
+      // Add new reference images to batch
+      for (let i = 0; i < referenceResults.length; i++) {
+        const file = uploadedFiles[i];
+        const result = referenceResults[i];
+        if (file && result) {
+          db.addReferenceImageToBatch(batch.id, file.filename, file.originalName, result.referenceImageId);
+        }
+      }
+    }
+    
+    // Handle existing reference image IDs and ensure they have valid Replicate uploads
+    if (existingReferenceImageIds.length > 0) {
+      // Ensure existing reference images have valid Replicate uploads (re-upload if expired)
+      const ensuredResults = await referenceImageService.ensureExistingReferenceImages(existingReferenceImageIds);
+      
+      for (const result of ensuredResults) {
+        const refImage = db.getReferenceImage(result.referenceImageId);
+        if (refImage) {
+          db.addReferenceImageToBatch(batch.id, refImage.filename, refImage.original_name || refImage.filename, refImage.id);
+          console.log(`Added existing reference image ${refImage.id} to batch ${batch.id}${result.isExpired ? ' (re-uploaded expired)' : ' (reused valid)'}`);
+        }
+      }
     }
 
     // Start the generation process

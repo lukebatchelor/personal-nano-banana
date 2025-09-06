@@ -1,6 +1,7 @@
 import ReplicateService from './replicate';
 import ImageService from './images';
 import DatabaseService from './database';
+import ReferenceImageService from './referenceImages';
 import type { Batch } from '../types';
 
 interface GenerationJob {
@@ -22,6 +23,7 @@ class GenerationService {
   private replicate: ReplicateService;
   private imageService: ImageService;
   private db: DatabaseService;
+  private referenceImageService: ReferenceImageService;
   private activeJobs = new Map<string, GenerationJob>(); // predictionId -> job
   private maxConcurrency = 4; // Configurable max concurrent requests
 
@@ -29,9 +31,11 @@ class GenerationService {
     this.db = db;
     this.replicate = new ReplicateService();
     this.imageService = new ImageService(db);
+    this.referenceImageService = new ReferenceImageService(db);
   }
 
   async startGeneration(batchId: number): Promise<void> {
+    const jobs: GenerationJob[] = [];
     try {
       const batch = this.db.getBatch(batchId);
       if (!batch) {
@@ -45,18 +49,16 @@ class GenerationService {
       // Update batch status to processing
       this.db.updateBatchStatus(batchId, 'processing');
 
-      // Get reference images if any
-      const referenceImages = this.db.getReferenceImagesByBatch(batchId);
-      const referenceImageUrls = referenceImages.map(img => 
-        `${process.env.BASE_URL || 'http://localhost:3000'}/api/images/${img.filename}`
-      );
+      // Get reference image URLs from Replicate (handles expiration transparently)
+      const referenceImageUrls = await this.referenceImageService.getReferenceImageUrls(batchId);
+      console.log(`Found ${referenceImageUrls.length} reference image URLs for batch ${batchId}:`, referenceImageUrls);
 
       // Start individual generation requests for each image
-      const jobs: GenerationJob[] = [];
       
       for (let i = 0; i < batch.batch_size; i++) {
         const predictionId = await this.replicate.generateImages({
           prompt: batch.prompt,
+          numOutputs: 1, // Generate one image per prediction
           referenceImageUrls: referenceImageUrls.length > 0 ? referenceImageUrls : undefined
         });
 
@@ -85,7 +87,9 @@ class GenerationService {
       console.error(`Error starting generation for batch ${batchId}:`, error);
       this.db.updateBatchStatus(batchId, 'failed', error instanceof Error ? error.message : 'Unknown error');
       // Clean up any created jobs on failure
-      jobs.forEach(job => this.activeJobs.delete(job.predictionId));
+      if (jobs && jobs.length > 0) {
+        jobs.forEach((job: GenerationJob) => this.activeJobs.delete(job.predictionId));
+      }
       throw error;
     }
   }
@@ -106,6 +110,7 @@ class GenerationService {
         const result = await this.replicate.getGenerationStatus(predictionId);
 
         // Update database status
+        console.log(`Received status from Replicate: "${result.status}" for prediction ${predictionId}`);
         this.db.updatePredictionJobStatus(predictionId, result.status, result.error);
 
         if (result.status === 'succeeded') {
@@ -186,14 +191,16 @@ class GenerationService {
       processing: 0
     };
 
-    for (const status of jobStatuses) {
-      progress.totalImages += status.count;
-      if (status.status === 'succeeded') {
-        progress.completed += status.count;
-      } else if (status.status === 'failed' || status.status === 'canceled') {
-        progress.failed += status.count;
+    for (const statusInfo of jobStatuses) {
+      const count = (statusInfo as any).count || 0;
+      const status = (statusInfo as any).status;
+      progress.totalImages += count;
+      if (status === 'succeeded') {
+        progress.completed += count;
+      } else if (status === 'failed' || status === 'canceled') {
+        progress.failed += count;
       } else {
-        progress.processing += status.count;
+        progress.processing += count;
       }
     }
 

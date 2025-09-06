@@ -3,8 +3,9 @@ import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { generateFilename } from '../utils/filename';
+import { paths } from '../config/paths';
 
-const UPLOAD_DIR = 'uploads';
+const UPLOAD_DIR = paths.uploads;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 

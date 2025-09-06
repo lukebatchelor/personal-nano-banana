@@ -1,7 +1,9 @@
 import { Hono } from 'hono';
+import { serveStatic } from 'hono/bun';
 import { corsMiddleware } from './src/middleware/cors';
 import { errorMiddleware } from './src/middleware/error';
 import DatabaseService from './src/services/database';
+import { ensureDirectoriesExist } from './src/config/paths';
 
 // Import route modules
 import sessions from './src/routes/sessions';
@@ -11,12 +13,21 @@ import upload from './src/routes/upload';
 
 const app = new Hono();
 
-// Initialize database
-const db = new DatabaseService();
+// Ensure storage directories exist
+ensureDirectoriesExist();
+
+// Initialize database with environment-based path
+const dbPath = process.env.DATABASE_PATH || 'database.sqlite';
+const db = new DatabaseService(dbPath);
 
 // Global middleware
 app.use('*', errorMiddleware);
 app.use('*', corsMiddleware);
+
+// Serve static frontend files in production
+if (process.env.NODE_ENV === 'production') {
+  app.use('/*', serveStatic({ root: './public' }));
+}
 
 // Health check endpoint
 app.get('/', (c) => {

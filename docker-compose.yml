@@ -1,0 +1,24 @@
+version: "3.8"
+services:
+  app:
+    image: personal-nano-banana:latest
+    # replace image with build to build the image from the Dockerfile
+    # build: .
+    init: true
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - REPLICATE_API_TOKEN=${REPLICATE_API_TOKEN}
+      - NODE_ENV=production
+      - DATABASE_PATH=/app/data/database.sqlite
+      - UPLOADS_DIR=/app/data/uploads
+      - GENERATED_IMAGES_DIR=/app/data/generated
+      - PORT=3000
+    networks:
+      - web
+networks:
+  web:
+    name: web
+    external: true

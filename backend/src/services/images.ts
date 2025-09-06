@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import * as path from 'path';
-import { randomUUID } from 'crypto';
 import DatabaseService from './database';
+import { generateFilename } from '../utils/filename';
 
 interface ImageMetadata {
   width: number;
@@ -35,10 +35,10 @@ class ImageService {
 
       const imageBuffer = Buffer.from(await response.arrayBuffer());
       
-      // Generate unique filenames
-      const imageId = randomUUID();
-      const fullFilename = `${imageId}.jpg`;
-      const previewFilename = `${imageId}_preview.webp`;
+      // Generate unique filenames with same base name
+      const baseFilename = generateFilename(''); // No extension
+      const fullFilename = `${baseFilename}.jpg`;
+      const previewFilename = `${baseFilename}_preview.webp`;
       
       // Get image metadata
       const image = sharp(imageBuffer);
@@ -113,8 +113,8 @@ class ImageService {
 
   async createPreviewFromExisting(fullImagePath: string): Promise<string> {
     try {
-      const imageId = randomUUID();
-      const previewFilename = `${imageId}_preview.webp`;
+      const baseFilename = generateFilename(''); // No extension
+      const previewFilename = `${baseFilename}_preview.webp`;
       const previewImagePath = path.join(this.previewImageDir, previewFilename);
 
       await sharp(fullImagePath)

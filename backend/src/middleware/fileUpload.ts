@@ -2,6 +2,7 @@ import type { Context, Next } from 'hono';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { generateFilename } from '../utils/filename';
 
 const UPLOAD_DIR = 'uploads';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -42,9 +43,9 @@ export const fileUploadMiddleware = async (c: Context, next: Next) => {
           return c.json({ error: `File too large: ${value.size} bytes` }, 400);
         }
 
-        // Generate unique filename
+        // Generate unique filename using new format
         const ext = path.extname(value.name);
-        const filename = `${randomUUID()}${ext}`;
+        const filename = generateFilename(ext);
         const filePath = path.join(UPLOAD_DIR, filename);
 
         // Save file

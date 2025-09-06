@@ -1,6 +1,7 @@
 import type { Session, SessionWithBatches, BatchRequest, BatchStatusResponse } from '../types';
+import { API_BASE_URL } from '../config/api';
 
-const API_BASE = 'http://localhost:3000/api';
+const API_BASE = `${API_BASE_URL}/api`;
 
 class ApiService {
   private async fetch(endpoint: string, options?: RequestInit) {

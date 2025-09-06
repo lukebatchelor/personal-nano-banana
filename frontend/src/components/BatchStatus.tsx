@@ -1,11 +1,17 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import { useBatchStatus } from '../hooks/useApi';
 import { apiService } from '../services/api';
+import ImageModal from './ImageModal';
+import type { GeneratedImage } from '../types';
+import { API_BASE_URL } from '../config/api';
 
 export default function BatchStatus() {
   const { activeBatchId, setActiveBatchId, setIsGenerating } = useAppStore();
   const { data: batchStatus, refetch } = useBatchStatus(activeBatchId);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalImages, setModalImages] = useState<GeneratedImage[]>([]);
+  const [modalInitialIndex, setModalInitialIndex] = useState(0);
 
   useEffect(() => {
     if (!activeBatchId || !batchStatus) return;
@@ -23,12 +29,33 @@ export default function BatchStatus() {
     return () => clearInterval(interval);
   }, [activeBatchId, batchStatus, refetch, setIsGenerating]);
 
+  const openImageModal = (index: number) => {
+    if (!batchStatus?.images) return;
+    
+    // Convert BatchStatusResponse images to GeneratedImage format for modal
+    const modalImagesData: GeneratedImage[] = batchStatus.images.map((img, idx) => ({
+      id: img.id,
+      batch_id: activeBatchId!,
+      filename: img.url.split('/').pop() || '',
+      preview_filename: img.previewUrl.split('/').pop() || null,
+      width: null,
+      height: null,
+      file_size: null,
+      replicate_id: null,
+      created_at: new Date().toISOString()
+    }));
+    
+    setModalImages(modalImagesData);
+    setModalInitialIndex(index);
+    setModalOpen(true);
+  };
+
   if (!activeBatchId || !batchStatus) return null;
 
   return (
     <div className="bg-white rounded-lg shadow-sm border p-6 mb-8">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">Generation Status</h3>
+        <h3 className="text-lg font-semibold text-gray-900">Batch Status</h3>
         <button
           onClick={() => setActiveBatchId(null)}
           className="text-gray-400 hover:text-gray-600"
@@ -68,7 +95,7 @@ export default function BatchStatus() {
               </svg>
             </div>
             <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">Generation Failed</h3>
+              <h3 className="text-sm font-medium text-red-800">Batch Failed</h3>
               <p className="text-sm text-red-700 mt-1">{batchStatus.error}</p>
             </div>
           </div>
@@ -80,19 +107,27 @@ export default function BatchStatus() {
         <div>
           <h4 className="text-sm font-medium text-gray-900 mb-3">Generated Images</h4>
           <div className="flex gap-4 overflow-x-auto pb-2">
-            {batchStatus.images.map((image) => (
+            {batchStatus.images.map((image, index) => (
               <div key={image.id} className="flex-shrink-0 cursor-pointer">
                 <img
-                  src={`http://localhost:3000${image.previewUrl}`}
+                  src={`${API_BASE_URL}${image.previewUrl}`}
                   alt="Generated image"
                   className="w-32 h-32 object-cover rounded-lg shadow-sm hover:shadow-md transition-shadow"
-                  onClick={() => window.open(`http://localhost:3000${image.url}`, '_blank')}
+                  onClick={() => openImageModal(index)}
                 />
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* Image Modal */}
+      <ImageModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        images={modalImages}
+        initialIndex={modalInitialIndex}
+      />
     </div>
   );
 }

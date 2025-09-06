@@ -2,12 +2,18 @@ import { useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import { useSessions, useCreateSession, useCreateBatch, useSession } from '../hooks/useApi';
 import BatchStatus from '../components/BatchStatus';
+import ImageModal from '../components/ImageModal';
+import type { GeneratedImage } from '../types';
+import { getPreviewUrl } from '../config/api';
 
 export default function Home() {
   const [prompt, setPrompt] = useState('');
   const [batchSize, setBatchSize] = useState(2);
   const [showNewSessionInput, setShowNewSessionInput] = useState(false);
   const [newSessionName, setNewSessionName] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalImages, setModalImages] = useState<GeneratedImage[]>([]);
+  const [modalInitialIndex, setModalInitialIndex] = useState(0);
   
   const { currentSession, setCurrentSession, isGenerating, setIsGenerating, setActiveBatchId } = useAppStore();
   const { data: sessions } = useSessions();
@@ -58,6 +64,12 @@ export default function Home() {
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const openImageModal = (images: GeneratedImage[], index: number) => {
+    setModalImages(images);
+    setModalInitialIndex(index);
+    setModalOpen(true);
   };
 
   return (
@@ -170,7 +182,7 @@ export default function Home() {
         {/* Recent Batches */}
         <div className="bg-white rounded-lg shadow-sm border p-6">
           <h2 className="text-xl font-semibold text-gray-900 mb-4">
-            {currentSession ? `Recent Generations - ${currentSession.name}` : 'Recent Generations'}
+            {currentSession ? `Recent Batches - ${currentSession.name}` : 'Recent Batches'}
           </h2>
           
           {!currentSession ? (
@@ -181,7 +193,7 @@ export default function Home() {
                 </svg>
               </div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">No session selected</h3>
-              <p className="text-gray-500">Select or create a session to see your generations</p>
+              <p className="text-gray-500">Select or create a session to see your batches</p>
             </div>
           ) : !sessionWithBatches?.batches?.length ? (
             <div className="text-gray-500 text-center py-8">
@@ -190,7 +202,7 @@ export default function Home() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               </div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No generations yet</h3>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">No batches yet</h3>
               <p className="text-gray-500">Create your first batch above!</p>
             </div>
           ) : (
@@ -227,17 +239,20 @@ export default function Home() {
                   
                   {batch.images && batch.images.length > 0 && (
                     <div className="flex gap-2 overflow-x-auto">
-                      {batch.images.slice(0, 4).map((image) => (
+                      {batch.images.slice(0, 4).map((image, index) => (
                         <img
                           key={image.id}
-                          src={`http://localhost:3000/api/images/preview/${image.preview_filename || image.filename}`}
+                          src={getPreviewUrl(image.preview_filename || image.filename)}
                           alt="Generated"
                           className="w-16 h-16 object-cover rounded cursor-pointer hover:opacity-80"
-                          onClick={() => window.open(`http://localhost:3000/api/images/${image.filename}`, '_blank')}
+                          onClick={() => openImageModal(batch.images, index)}
                         />
                       ))}
                       {batch.images.length > 4 && (
-                        <div className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center text-xs text-gray-500">
+                        <div 
+                          className="w-16 h-16 bg-gray-100 rounded flex items-center justify-center text-xs text-gray-500 cursor-pointer hover:bg-gray-200"
+                          onClick={() => openImageModal(batch.images, 4)}
+                        >
                           +{batch.images.length - 4}
                         </div>
                       )}
@@ -249,6 +264,14 @@ export default function Home() {
           )}
         </div>
       </div>
+
+      {/* Image Modal */}
+      <ImageModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        images={modalImages}
+        initialIndex={modalInitialIndex}
+      />
     </div>
   );
 }

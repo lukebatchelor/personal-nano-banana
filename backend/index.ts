@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { corsMiddleware } from './src/middleware/cors';
 import { errorMiddleware } from './src/middleware/error';
-import DatabaseService from './src/services/database';
+import db from './src/services/db';
 import { ensureDirectoriesExist } from './src/config/paths';
 
 // Import route modules
@@ -15,10 +15,6 @@ const app = new Hono();
 
 // Ensure storage directories exist
 ensureDirectoriesExist();
-
-// Initialize database with environment-based path
-const dbPath = process.env.DATABASE_PATH || 'database.sqlite';
-const db = new DatabaseService(dbPath);
 
 // Global middleware
 app.use('*', errorMiddleware);

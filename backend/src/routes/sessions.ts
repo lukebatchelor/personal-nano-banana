@@ -1,9 +1,8 @@
 import { Hono } from 'hono';
-import DatabaseService from '../services/database';
+import db from '../services/db';
 import { CreateSessionSchema, SessionIdParam } from '../validation/schemas';
 
 const sessions = new Hono();
-const db = new DatabaseService();
 
 // POST /api/sessions - Create new session
 sessions.post('/', async (c) => {

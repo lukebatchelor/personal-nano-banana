@@ -1,4 +1,3 @@
-version: "3.8"
 services:
   app:
     image: personal-nano-banana:latest
@@ -16,9 +15,3 @@ services:
       - UPLOADS_DIR=/app/data/uploads
       - GENERATED_IMAGES_DIR=/app/data/generated
       - PORT=3000
-    networks:
-      - web
-networks:
-  web:
-    name: web
-    external: true

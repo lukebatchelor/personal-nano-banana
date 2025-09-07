@@ -9,8 +9,8 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files for both frontend and backend
-COPY frontend/package.json frontend/bun.lockb ./frontend/
-COPY backend/package.json backend/bun.lockb ./backend/
+COPY frontend/package.json frontend/bun.lock ./frontend/
+COPY backend/package.json backend/bun.lock ./backend/
 
 # Install dependencies for both projects
 WORKDIR /app/frontend
@@ -37,17 +37,26 @@ FROM oven/bun:1 as final
 
 WORKDIR /app
 
+# Install runtime dependencies, Sharp dependencies, and build tools for native modules
+# Do this BEFORE copying built assets to avoid cache invalidation
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libvips-dev \
+    build-essential \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy package.json first for better layer caching
+COPY --from=builder /app/backend/package.json /app/package.json
+WORKDIR /app
+RUN bun install --production --frozen-lockfile
+
 # Create necessary directories for image storage
 RUN mkdir -p /app/public /app/data/uploads /app/data/generated/full /app/data/generated/previews
 
 # Copy built frontend assets and backend server
 COPY --from=builder /app/frontend/dist /app/public
 COPY --from=builder /app/server.js /app/server.js
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
 
 # Set environment variables
 ENV NODE_ENV=production

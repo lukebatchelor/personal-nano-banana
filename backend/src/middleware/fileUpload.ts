@@ -26,7 +26,7 @@ export const fileUploadMiddleware = async (c: Context, next: Next) => {
   }
 
   try {
-    console.log('Parsing body in middleware...');
+    console.log('Parsing body in middleware........');
     const body = await c.req.parseBody();
     console.log('Body parsed successfully:', Object.keys(body));
     const uploadedFiles: { id: string; filename: string; originalName: string }[] = [];
@@ -49,7 +49,7 @@ export const fileUploadMiddleware = async (c: Context, next: Next) => {
         const filename = generateFilename(ext);
         const filePath = path.join(UPLOAD_DIR, filename);
 
-        // Save file
+        // Save file!!
         const arrayBuffer = await value.arrayBuffer();
         await fs.writeFile(filePath, Buffer.from(arrayBuffer));
 

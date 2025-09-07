@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiService } from '../services/api';
-import type { Session, SessionWithBatches, BatchRequest } from '../types';
+import type { BatchRequest } from '../types';
 
 // Query keys
 export const queryKeys = {
@@ -43,7 +43,7 @@ export function useCreateBatch() {
   return useMutation({
     mutationFn: ({ sessionId, request }: { sessionId: number; request: BatchRequest }) =>
       apiService.createBatch(sessionId, request),
-    onSuccess: (data, variables) => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.session(variables.sessionId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.sessions });
     },

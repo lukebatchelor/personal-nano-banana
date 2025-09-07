@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import { useBatchStatus } from '../hooks/useApi';
-import { apiService } from '../services/api';
 import ImageModal from './ImageModal';
 import type { GeneratedImage } from '../types';
 import { API_BASE_URL } from '../config/api';
@@ -33,7 +32,7 @@ export default function BatchStatus() {
     if (!batchStatus?.images) return;
     
     // Convert BatchStatusResponse images to GeneratedImage format for modal
-    const modalImagesData: GeneratedImage[] = batchStatus.images.map((img, idx) => ({
+    const modalImagesData: GeneratedImage[] = batchStatus.images.map((img) => ({
       id: img.id,
       batch_id: activeBatchId!,
       filename: img.url.split('/').pop() || '',

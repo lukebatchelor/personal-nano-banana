@@ -15,3 +15,4 @@ services:
       - UPLOADS_DIR=/app/data/uploads
       - GENERATED_IMAGES_DIR=/app/data/generated
       - PORT=3000
+    restart: unless-stopped

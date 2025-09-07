@@ -1,18 +1,18 @@
 import { Hono } from 'hono';
-import DatabaseService from '../services/database';
+import db from '../services/db';
 import ImageService from '../services/images';
 import { GalleryQuerySchema, ImageIdParam } from '../validation/schemas';
+import { paths } from '../config/paths';
 import * as path from 'path';
 
 const images = new Hono();
-const db = new DatabaseService();
 const imageService = new ImageService(db);
 
 // GET /api/images/reference/:filename - Serve reference images from uploads
 images.get('/reference/:filename', async (c) => {
   try {
     const filename = c.req.param('filename');
-    const filePath = path.join('uploads', filename);
+    const filePath = path.join(paths.uploads, filename);
     
     const file = Bun.file(filePath);
     
@@ -35,7 +35,7 @@ images.get('/reference/:filename', async (c) => {
 images.get('/:filename', async (c) => {
   try {
     const filename = c.req.param('filename');
-    const filePath = path.join('generated', 'full', filename);
+    const filePath = path.join(paths.generatedImages.full, filename);
     
     const file = Bun.file(filePath);
     
@@ -58,7 +58,7 @@ images.get('/:filename', async (c) => {
 images.get('/preview/:filename', async (c) => {
   try {
     const filename = c.req.param('filename');
-    const filePath = path.join('generated', 'previews', filename);
+    const filePath = path.join(paths.generatedImages.previews, filename);
     
     const file = Bun.file(filePath);
     
@@ -126,7 +126,7 @@ images.get('/:imageId/download', async (c) => {
       return c.json({ error: 'Image not found' }, 404);
     }
 
-    const filePath = path.join('generated', 'full', imageInfo.filename);
+    const filePath = path.join(paths.generatedImages.full, imageInfo.filename);
     const file = Bun.file(filePath);
     
     if (!(await file.exists())) {

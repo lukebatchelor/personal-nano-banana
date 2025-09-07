@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import type { ReplicateFileResponse } from '../types';
 import DatabaseService from './database';
+import { paths } from '../config/paths';
 
 interface FileUpload {
   filename: string;
@@ -256,7 +257,7 @@ class ReferenceImageService {
         console.log(`Re-uploading expired/missing reference image ${refImageId} to Replicate`);
         
         // Read the original file
-        const filePath = `uploads/${refImage.filename}`;
+        const filePath = `${paths.uploads}/${refImage.filename}`;
         const bunFile = Bun.file(filePath);
         
         if (!(await bunFile.exists())) {

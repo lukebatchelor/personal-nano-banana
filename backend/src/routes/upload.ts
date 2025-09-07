@@ -1,12 +1,12 @@
 import { Hono } from 'hono';
 import { fileUploadMiddleware } from '../middleware/fileUpload';
 import ReferenceImageService from '../services/referenceImages';
-import DatabaseService from '../services/database';
+import db from '../services/db';
+import { paths } from '../config/paths';
 
 const upload = new Hono();
 
 // Initialize services
-const db = new DatabaseService();
 const referenceImageService = new ReferenceImageService(db);
 
 // POST /api/upload/reference - Handle reference image uploads
@@ -23,7 +23,7 @@ upload.post('/reference', fileUploadMiddleware, async (c) => {
     
     for (const file of uploadedFiles) {
       // Read the uploaded file
-      const filePath = `uploads/${file.filename}`;
+      const filePath = `${paths.uploads}/${file.filename}`;
       const bunFile = Bun.file(filePath);
       const buffer = await bunFile.arrayBuffer();
       

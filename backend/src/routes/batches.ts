@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
-import DatabaseService from '../services/database';
+import db from '../services/db';
 import GenerationService from '../services/generation';
 import ReferenceImageService from '../services/referenceImages';
 import { fileUploadMiddleware } from '../middleware/fileUpload';
 import { CreateBatchSchema, SessionIdParam, BatchIdParam } from '../validation/schemas';
+import { paths } from '../config/paths';
 
 // Define interface for uploaded file
 interface UploadedFile {
@@ -22,7 +23,6 @@ declare module 'hono' {
 }
 
 const batches = new Hono();
-const db = new DatabaseService();
 const generationService = new GenerationService(db);
 const referenceImageService = new ReferenceImageService(db);
 
@@ -67,7 +67,7 @@ batches.post('/sessions/:sessionId/batches', fileUploadMiddleware, async (c) => 
       const fileUploads = [];
       
       for (const file of uploadedFiles) {
-        const filePath = `uploads/${file.filename}`;
+        const filePath = `${paths.uploads}/${file.filename}`;
         const bunFile = Bun.file(filePath);
         const buffer = await bunFile.arrayBuffer();
         

@@ -2,6 +2,7 @@ import sharp from 'sharp';
 import * as path from 'path';
 import DatabaseService from './database';
 import { generateFilename } from '../utils/filename';
+import { paths } from '../config/paths';
 
 interface ImageMetadata {
   width: number;
@@ -17,8 +18,8 @@ interface ProcessedImage {
 
 class ImageService {
   private db: DatabaseService;
-  private fullImageDir = 'generated/full';
-  private previewImageDir = 'generated/previews';
+  private fullImageDir = paths.generatedImages.full;
+  private previewImageDir = paths.generatedImages.previews;
   private maxPreviewWidth = 800;
 
   constructor(db: DatabaseService) {
